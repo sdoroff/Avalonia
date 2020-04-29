@@ -5,6 +5,7 @@
 
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
+using Avalonia.Data;
 using Avalonia.Input;
 
 namespace Avalonia.Controls
@@ -26,13 +27,131 @@ namespace Avalonia.Controls
                 nameof(IsValid),
                 o => o.IsValid);
 
+        public void AddToLog(RowLogData data)
+        {
+            if (IsTesting)
+                OwningRow.AddToLog(data);
+        }
+
+        private void Log(string type, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Cell",
+                    Type = type,
+                    Message = message
+                };
+            AddToLog(data);
+        }
+        private void LogLayout(string message)
+        {
+            Log("Layout", message);
+        }
+        private void LogProperty(string property, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Cell",
+                    Type = "Property",
+                    Property = property,
+                    Message = message
+                };
+
+            AddToLog(data);
+        }
+
+        private void LogContent(string type, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Content",
+                    Type = type,
+                    Message = message
+                };
+            AddToLog(data);
+        }
+        private void LogContentLayout(string message)
+        {
+            LogContent("Layout", message);
+        }
+        private void LogContentProperty(string property, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Content",
+                    Type = "Property",
+                    Property = property,
+                    Message = message
+                };
+
+            AddToLog(data);
+        }
+
         static DataGridCell()
         {
             PointerPressedEvent.AddClassHandler<DataGridCell>(
                 (x,e) => x.DataGridCell_PointerPressed(e), handledEventsToo: true);
         }
         public DataGridCell()
-        { }
+        {
+            this.LayoutUpdated += (s, e) => LogLayout("LayoutUpdated");
+        }
+
+        protected override void OnDataContextBeginUpdate()
+        {
+            Log("DataContext", "DataContext Update Start");
+            base.OnDataContextBeginUpdate();
+        }
+        protected override void OnDataContextEndUpdate()
+        {
+            base.OnDataContextEndUpdate();
+            Log("DataContext", "DataContext Update Complete");
+        }
+        protected override void OnPropertyChanged<T>(AvaloniaProperty<T> property, Optional<T> oldValue, BindingValue<T> newValue, BindingPriority priority)
+        {
+            if (newValue.HasValue && newValue.Value != null)
+            {
+                var oldValueText = "NIL";
+                if (oldValue.HasValue && oldValue.Value != null)
+                    oldValueText = oldValue.Value.ToString();
+                LogProperty(property.Name, $"{property.Name} Changed ({oldValueText} -> {newValue.Value})");
+            }
+
+            if(property == ContentProperty && newValue.HasValue && newValue.Value is TextBlock element)
+            {
+                LogLayout("Content Set and Bound");
+                element.LayoutUpdated += (s, e) => LogContentLayout("Layout Updated");
+                element.PropertyChanged += Element_PropertyChanged;
+            }
+
+            base.OnPropertyChanged(property, oldValue, newValue, priority);
+        }
+
+        private void Element_PropertyChanged(object sender, AvaloniaPropertyChangedEventArgs e)
+        {
+            LogContentProperty(e.Property.Name, $"{e.Property.Name} Changed ({e.OldValue} -> {e.NewValue})");
+        } 
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            //if(IsTargetCell)
+            LogLayout($"Measure Start ({availableSize.Height})");
+
+            var result = base.MeasureOverride(availableSize);
+            LogLayout($"Measure Complete ({result.Height})");
+            return result;
+        }
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            LogLayout($"Arrange Start ({finalSize.Height})");
+            var result = base.ArrangeOverride(finalSize);
+            LogLayout($"Measure Complete ({result.Height})");
+            return result;
+        }
 
         public bool IsValid
         {
@@ -61,6 +180,21 @@ namespace Avalonia.Controls
         internal DataGrid OwningGrid
         {
             get { return OwningRow?.OwningGrid ?? OwningColumn?.OwningGrid; }
+        }
+
+        private bool TestColumn
+        {
+            get { return OwningColumn?.TestColumn ?? false; }
+        }
+
+        private bool IsTesting
+        {
+            get { return (OwningGrid?.IsTestElement ?? false) && TestColumn; }
+        }
+
+        private bool IsTargetCell
+        {
+            get { return (OwningRow?.IsTargetRow ?? false) && TestColumn; }
         }
 
         internal double ActualRightGridLineWidth

@@ -13,10 +13,24 @@ using Avalonia.Media;
 using Avalonia.Utilities;
 using Avalonia.VisualTree;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace Avalonia.Controls
 {
+    public class RowLogData
+    {
+        public string Source { get; set; }
+        public string Message { get; set; }
+        public string Type { get; set; }
+        public string Property { get; set; }
+        public DateTime TimeStamp { get; private set; }
+        public RowLogData()
+        {
+            TimeStamp = DateTime.Now;
+        }
+    }
+
     /// <summary>
     /// Represents a <see cref="T:Avalonia.Controls.DataGrid" /> row.
     /// </summary>
@@ -114,11 +128,86 @@ namespace Avalonia.Controls
             set { SetValue(AreDetailsVisibleProperty, value); }
         }
 
+        public bool IsTesting
+        {
+            get
+            {
+                return OwningGrid?.IsTestElement ?? false;
+            }
+        }
+
+        static int _nextRowId = 0;
+        int _rowId = -1;
+
+        List<RowLogData> _rowLog = new List<RowLogData>();
+
+        static HashSet<string> _propertiesToIgnore = new HashSet<string>
+        {
+            "Foreground",
+            "IsPointerOver",
+            "AreDetailsVisible",
+            "TransformedBounds",
+            "RenderTransform"
+        };
+
+        public void PrintLog()
+        {
+            void PrintLine(RowLogData data)
+            {
+                Debug.WriteLine($"{data.Source} - {data.Message}");
+            }
+
+            foreach (var row in _rowLog)
+            {
+                bool shouldShow = true;
+                if (row.Type == "Property" && _propertiesToIgnore.Contains(row.Property))
+                    shouldShow = false;
+
+                if(shouldShow)
+                    PrintLine(row);
+            }
+        }
+
+        public void AddToLog(RowLogData data)
+        {
+            if(IsTesting)
+                _rowLog.Add(data);
+        }
+
+        private void Log(string type, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Row",
+                    Type = type,
+                    Message = message
+                };
+            AddToLog(data);
+        }
+        private void LogLayout(string message)
+        {
+            Log("Layout", message);
+        }
+        private void LogProperty(string property, string message)
+        {
+            var data =
+                new RowLogData()
+                {
+                    Source = "Row",
+                    Type = "Property",
+                    Property = property,
+                    Message = message
+                };
+
+            AddToLog(data);
+        }
+
         static DataGridRow()
         {
-            HeaderProperty.Changed.AddClassHandler<DataGridRow>((x, e) => x.OnHeaderChanged(e));
-            DetailsTemplateProperty.Changed.AddClassHandler<DataGridRow>((x, e) => x.OnDetailsTemplateChanged(e));
-            AreDetailsVisibleProperty.Changed.AddClassHandler<DataGridRow>((x, e) => x.OnAreDetailsVisibleChanged(e));
+            HeaderProperty.Changed.AddClassHandler((Action<DataGridRow, AvaloniaPropertyChangedEventArgs>)((x, e) => x.OnHeaderChanged(e)));
+            DetailsTemplateProperty.Changed.AddClassHandler((Action<DataGridRow, AvaloniaPropertyChangedEventArgs>)((x, e) => x.OnDetailsTemplateChanged(e)));
+            AreDetailsVisibleProperty.Changed.AddClassHandler((Action<DataGridRow, AvaloniaPropertyChangedEventArgs>)((x, e) => x.OnAreDetailsVisibleChanged(e)));
             PointerPressedEvent.AddClassHandler<DataGridRow>((x, e) => x.DataGridRow_PointerPressed(e), handledEventsToo: true);
         }
 
@@ -139,6 +228,40 @@ namespace Avalonia.Controls
             Cells = new DataGridCellCollection(this);
             Cells.CellAdded += DataGridCellCollection_CellAdded;
             Cells.CellRemoved += DataGridCellCollection_CellRemoved;
+
+            this.LayoutUpdated += (s, e) => LogLayout("LayoutUpdated");
+        }
+
+        protected override void OnDataContextBeginUpdate()
+        {
+            Log("DataContext", "DataContext Update Start");
+            base.OnDataContextBeginUpdate();
+        }
+        protected override void OnDataContextEndUpdate()
+        {
+            base.OnDataContextEndUpdate();
+            Log("DataContext", "DataContext Update Complete");
+        }
+
+        public bool IsTargetRow { get; set; }
+
+        protected override void OnPropertyChanged<T>(AvaloniaProperty<T> property, Optional<T> oldValue, BindingValue<T> newValue, BindingPriority priority)
+        {
+            if (newValue.HasValue && newValue.Value != null)
+            {
+                var oldValueText = "NIL";
+                if (oldValue.HasValue && oldValue.Value != null)
+                    oldValueText = oldValue.Value.ToString();
+                LogProperty(property.Name, $"{property.Name} Changed ({oldValueText} -> {newValue.Value})");
+            }
+            base.OnPropertyChanged(property, oldValue, newValue, priority);
+
+            if(property == DataContextProperty && newValue.HasValue && newValue.Value != null)
+            {
+                var valueText = newValue.Value.ToString();
+                if (valueText == "a, 21")
+                    IsTargetRow = true;
+            }
         }
 
         private void SetValueNoCallback<T>(AvaloniaProperty<T> property, T value, BindingPriority priority = BindingPriority.LocalValue)
@@ -199,19 +322,31 @@ namespace Avalonia.Controls
             }
         }
 
+        DataGrid _owningGrid;
         internal DataGrid OwningGrid
         {
-            get;
-            set;
+            get { return _owningGrid; }
+            set 
+            {
+                if (value != null && value.IsTestElement && _rowId < 0)
+                    _rowId = _nextRowId++;
+                _owningGrid = value;
+            }
         }
 
+        int _indexValue;
         /// <summary>
         /// Index of the row
         /// </summary>
         internal int Index
         {
-            get;
-            set;
+            get { return _indexValue; }
+            set
+            {
+                if (value != _indexValue)
+                    LogProperty(nameof(Index), $"Index Changed: {_indexValue} -> {value}");
+                _indexValue = value;
+            }
         }
 
         internal double ActualBottomGridLineHeight
@@ -458,6 +593,8 @@ namespace Avalonia.Controls
                 return base.ArrangeOverride(finalSize);
             }
 
+            LogLayout($"Arrange Start ({finalSize.Height})");
+
             // If the DataGrid was scrolled horizontally after our last Arrange, we need to make sure
             // the Cells and Details are Arranged again
             if (_lastHorizontalOffset != OwningGrid.HorizontalOffset)
@@ -495,6 +632,8 @@ namespace Avalonia.Controls
                 _bottomGridLine.Clip = gridlineClipGeometry;
             }
 
+            LogLayout($"Arrange Complete ({size.Height})");
+
             return size;
         }
 
@@ -515,6 +654,8 @@ namespace Avalonia.Controls
                 return base.MeasureOverride(availableSize);
             }
 
+            LogLayout($"Measure Start ({availableSize.Height})");
+
             //Allow the DataGrid specific componets to adjust themselves based on new values
             if (_headerElement != null)
             {
@@ -530,6 +671,7 @@ namespace Avalonia.Controls
             }
 
             Size desiredSize = base.MeasureOverride(availableSize);
+            LogLayout($"Measure Complete ({desiredSize.Height})");
             return desiredSize.WithWidth(Math.Max(desiredSize.Width, OwningGrid.CellsWidth));
         }
 
@@ -648,6 +790,7 @@ namespace Avalonia.Controls
 
             if (recycle)
             {
+                LogLayout("Marked Recycled");
                 IsRecycled = true;
 
                 if (_cellsElement != null)

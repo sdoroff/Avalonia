@@ -149,6 +149,8 @@ namespace Avalonia.Controls
 
         private IEnumerable _items;
 
+        public bool IsTestElement { get; set; }
+
         public event EventHandler<ScrollEventArgs> HorizontalScroll;
         public event EventHandler<ScrollEventArgs> VerticalScroll;
 
@@ -4353,6 +4355,7 @@ namespace Avalonia.Controls
             }
 
             dataGridCell.Content = element;
+            dataGridCell.InvalidateMeasure();
         }
 
         private void PreparingCellForEditPrivate(Control editingElement)
