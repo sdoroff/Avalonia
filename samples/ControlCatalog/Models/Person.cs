@@ -94,10 +94,5 @@ namespace ControlCatalog.Models
             else
                 return null;
         }
-
-        public override string ToString()
-        {
-            return $"{FirstName}, {LastName}";
-        }
     }
 }

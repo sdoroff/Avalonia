@@ -9,7 +9,6 @@ using System;
 using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Controls.Utils;
-using Avalonia.Data;
 
 namespace Avalonia.Controls.Primitives
 {
@@ -21,19 +20,12 @@ namespace Avalonia.Controls.Primitives
     {
         private double _fillerLeftEdge;
 
-        double _desiredHeightValue;
-
         // The desired height needs to be cached due to column virtualization; otherwise, the cells
         // would grow and shrink as the DataGrid scrolls horizontally
         private double DesiredHeight
         {
-            get { return _desiredHeightValue; }
-            set
-            {
-                if (_desiredHeightValue != value)
-                    LogProperty(nameof(DesiredHeight), $"DesiredHeight Changed ({_desiredHeightValue} -> {value})");
-                _desiredHeightValue = value;
-            }
+            get;
+            set;
         }
 
         private DataGrid OwningGrid
@@ -48,79 +40,6 @@ namespace Avalonia.Controls.Primitives
         {
             get;
             set;
-        }
-        public bool IsTesting
-        {
-            get
-            {
-                return OwningRow?.IsTesting ?? false;
-            }
-        }
-        public bool IsTargetRow
-        {
-            get { return OwningRow?.IsTargetRow ?? false; }
-        }
-
-        public void AddToLog(RowLogData data)
-        {
-            OwningRow?.AddToLog(data);
-        }
-
-        private void Log(string type, string message)
-        {
-            var data =
-                new RowLogData()
-                {
-                    Source = "CellsPresenter",
-                    Type = type,
-                    Message = message
-                };
-            AddToLog(data);
-        }
-        private void LogLayout(string message)
-        {
-            Log("Layout", message);
-        }
-        private void LogProperty(string property, string message)
-        {
-            var data =
-                new RowLogData()
-                {
-                    Source = "CellsPresenter",
-                    Type = "Property",
-                    Property = property,
-                    Message = message
-                };
-
-            AddToLog(data);
-        }
-
-        public DataGridCellsPresenter()
-        {
-            this.LayoutUpdated += (s, e) => LogLayout("LayoutUpdated");
-        }
-
-        protected override void OnDataContextBeginUpdate()
-        {
-            Log("DataContext", "DataContext Update Start");
-            base.OnDataContextBeginUpdate();
-        }
-        protected override void OnDataContextEndUpdate()
-        {
-            base.OnDataContextEndUpdate();
-            Log("DataContext", "DataContext Update Complete");
-            DesiredHeight = 0;
-        }
-        protected override void OnPropertyChanged<T>(AvaloniaProperty<T> property, Optional<T> oldValue, BindingValue<T> newValue, BindingPriority priority)
-        {
-            if (newValue.HasValue && newValue.Value != null)
-            {
-                var oldValueText = "NIL";
-                if (oldValue.HasValue && oldValue.Value != null)
-                    oldValueText = oldValue.Value.ToString();
-                LogProperty(property.Name, $"{property.Name} Changed ({oldValueText} -> {newValue.Value})");
-            }
-            base.OnPropertyChanged(property, oldValue, newValue, priority);
         }
 
         /// <summary>
@@ -138,8 +57,6 @@ namespace Avalonia.Controls.Primitives
             {
                 return base.ArrangeOverride(finalSize);
             }
-
-            LogLayout($"Arrange Start ({finalSize.Height})");
 
             if (OwningGrid.AutoSizingColumns)
             {
@@ -182,8 +99,6 @@ namespace Avalonia.Controls.Primitives
             _fillerLeftEdge = scrollingLeftEdge;
 
             OwningRow.FillerCell.Arrange(new Rect(_fillerLeftEdge, 0, OwningGrid.ColumnsInternal.FillerColumn.FillerWidth, finalSize.Height));
-
-            LogLayout($"Arrange Complete ({finalSize.Height})");
 
             return finalSize;
         }
@@ -268,9 +183,6 @@ namespace Avalonia.Controls.Primitives
             {
                 return base.MeasureOverride(availableSize);
             }
-
-            //if(IsTargetRow)
-            LogLayout($"Measure Start ({availableSize.Height})");
 
             bool autoSizeHeight;
             double measureHeight;
@@ -357,7 +269,6 @@ namespace Avalonia.Controls.Primitives
                 // Since we didn't know the final widths of the columns until we resized,
                 // we waited until now to measure each cell
                 double leftEdge = 0;
-                DesiredHeight = 0;
                 foreach (DataGridColumn column in OwningGrid.ColumnsInternal.GetVisibleColumns())
                 {
                     DataGridCell cell = OwningRow.Cells[column.Index];
@@ -376,15 +287,11 @@ namespace Avalonia.Controls.Primitives
             OwningRow.FillerCell.Measure(new Size(double.PositiveInfinity, DesiredHeight));
 
             OwningGrid.ColumnsInternal.EnsureVisibleEdgedColumnsWidth();
-
-            LogLayout($"Measure Complete ({DesiredHeight})");
-
             return new Size(OwningGrid.ColumnsInternal.VisibleEdgedColumnsWidth, DesiredHeight);
         }
 
         internal void Recycle()
         {
-            LogLayout("Recycle Called");
             // Clear out the cached desired height so it is not reused for other rows
             DesiredHeight = 0;
         }

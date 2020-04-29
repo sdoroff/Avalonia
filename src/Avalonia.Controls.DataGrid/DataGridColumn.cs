@@ -199,8 +199,6 @@ namespace Avalonia.Controls
             }
         }
 
-        public bool TestColumn { get; set; }
-
         /// <summary>
         /// Actual visible width after Width, MinWidth, and MaxWidth setting at the Column level and DataGrid level
         /// have been taken into account
